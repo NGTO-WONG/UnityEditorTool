@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text;
@@ -53,11 +54,10 @@ public class ToolBarEditor
         }
     }
 
-    
     static ToolBarEditor()
     {
         //git工具
-        if (EditorPrefs.GetBool("Git_Conflict",false))
+        if (EditorPrefs.GetBool("Git_Conflict", false))
         {
             ToolbarExtender.LeftToolbarGUI.Add(ClearConflictButton);
         }
@@ -67,20 +67,22 @@ public class ToolBarEditor
             ToolbarExtender.LeftToolbarGUI.Add(GitPull);
             ToolbarExtender.LeftToolbarGUI.Add(GitCommitAndPush);
             ToolbarExtender.LeftToolbarGUI.Add(DropDown);
+            ToolbarExtender.LeftToolbarGUI.Add(RefreshBranchInfo);
         }
-        
+
         //场景切换
         ToolbarExtender.RightToolbarGUI.Add(OnRightToolbarGUI);
 
+        //RefreshBranchInfo();
     }
 
     private static void ClearConflictButton()
     {
         GUIContent buttonContent = EditorGUIUtility.IconContent("CollabConflict");
-        buttonContent.text = "git冲突中 别点我"; 
+        buttonContent.text = "git冲突中 别点我";
         if (GUILayout.Button(buttonContent))
         {
-            EditorPrefs.SetBool("Git_Conflict",false);
+            EditorPrefs.SetBool("Git_Conflict", false);
             EditorUtility.RequestScriptReload();
         }
     }
@@ -95,26 +97,33 @@ public class ToolBarEditor
             T().Forget();
         }
 
+
         async UniTask T()
         {
-            var (files, message) = await GitHelper.OpenCommitWindow();//玩家选择的文件 和提交log
-            
-            if ( EditorUtility.DisplayDialog($"推送确认", $"是否要提交到{_displayedOptions[_selectedIndex]}分支？\n log信息：{message}","确认","取消"))
+            (_displayedOptions, _currentBranchName) = await GitHelper.GetBranchInfo();
+            _selectedIndex = _displayedOptions.ToList().IndexOf(_currentBranchName);
+            var (files, message) = await GitHelper.OpenCommitWindow(); //玩家选择的文件 和提交log
+            if (files == null || files.Count == 0 || message == "")
             {
-                if (files != null && files.Count != 0 && message != "")
+                EditorUtility.DisplayDialog("未选择文件", "未选择文件", "ok");
+                return;
+            }
+
+            if (EditorUtility.DisplayDialog($"推送确认", $"是否要提交到{_displayedOptions[_selectedIndex]}分支？\n log信息：{message}",
+                    "确认", "取消"))
+            {
+                GitBlockWindow.OpenWindow();
+                var success = await GitHelper.CommitAndPush(files, message);
+                if (success)
                 {
-                    GitBlockWindow.OpenWindow();
-                    var success= await GitHelper.CommitAndPush(files, message);
-                    if (success)
-                    {
-                    
-                    }
-                    else
-                    {
-                        Debug.LogError("更新失败");
-                    }
-                    GitBlockWindow.CloseWindow();
+                    EditorUtility.DisplayDialog("推送成功", "推送成功", "ok");
                 }
+                else
+                {
+                    Debug.LogError("更新失败");
+                }
+
+                GitBlockWindow.CloseWindow();
             }
         }
     }
@@ -133,7 +142,8 @@ public class ToolBarEditor
 
     private static void RefreshBranchInfo()
     {
-        if (GUILayout.Button("手动刷新分支列表", ToolbarStyles.CommandButtonStyle2))
+        if (!EditorPrefs.GetBool("GitTool")) return;
+        if (GUILayout.Button("获取分支列表", ToolbarStyles.CommandButtonStyle2))
         {
             Func().Forget();
         }
@@ -150,72 +160,64 @@ public class ToolBarEditor
 
 
     private static int _selectedIndex = 0;
-    private static string[] _displayedOptions;
+    private static string[] _displayedOptions = new[] {"请先获取分支列表"};
     private static string _currentBranchName;
-    private static bool _running=false;
-
 
     private static void DropDown()
     {
         if (!EditorPrefs.GetBool("GitTool")) return;
+
         T().Forget();
 
         async UniTask T()
         {
-            if (_running) return;
-            _running = true;
             if (_displayedOptions == null)
             {
-                (_displayedOptions, _currentBranchName) = await GitHelper.GetBranchInfo();
-                _selectedIndex = _displayedOptions.ToList().IndexOf(_currentBranchName);
+                // (_displayedOptions, _currentBranchName) = await GitHelper.GetBranchInfo();
+                // _selectedIndex = _displayedOptions.ToList().IndexOf(_currentBranchName);
+                return;
             }
-            _running = false;
+
             // 创建一个下拉框
             var oldIndex = _selectedIndex;
             var width = GUILayout.Width(_displayedOptions[_selectedIndex].Length * 5 + 70);
             var height = GUILayout.Height(33);
+            var tryToCheckOutIndex = -1;
             try
             {
                 GUILayout.Label("切分支");
-                var tryToCheckOutIndex = EditorGUILayout.Popup(_selectedIndex, _displayedOptions, width, height);
-                if (tryToCheckOutIndex == oldIndex) return;
-                //询问是否切换
-                string message =
-                    $"是否要从  {_displayedOptions[oldIndex]}\n  切换到    {_displayedOptions[tryToCheckOutIndex]} 分支？\n\n本地未提交的修改会被清空\n本地未提交的修改会被清空\n本地未提交的修改会被清空";
-                if (EditorUtility.DisplayDialog("切分支", message, "确认", "取消"))
-                {
-                    // 在编辑器中显示所选值
-
-                    bool commitCheck = await GitHelper.CheckCommit();
-                    Debug.Log(!commitCheck);
-                    if (!commitCheck)
-                    {
-                        EditorUtility.DisplayDialog("检测到未提交的commit", "本地有未提交的commit 无法切分支 请先提交",
-                            "ok");
-                        return;
-                    }
-
-                    GitBlockWindow.OpenWindow();
-                    var coloredLabelStyle = new GUIStyle(EditorStyles.label);
-                    coloredLabelStyle.normal.textColor = Color.red;
-                    EditorGUILayout.LabelField("当前分支:" + _displayedOptions[_selectedIndex], coloredLabelStyle);
-                    await GitHelper.CheckOut(_displayedOptions[tryToCheckOutIndex]);
-                    _selectedIndex = tryToCheckOutIndex;
-                    EditorUtility.RequestScriptReload();
-                    (_displayedOptions, _currentBranchName) = await GitHelper.GetBranchInfo();
-                    _selectedIndex = _displayedOptions.ToList().IndexOf(_currentBranchName);
-                    DropDown();
-                    GitBlockWindow.CloseWindow();
-                }
-                else
-                {
-                    _selectedIndex = oldIndex;
-                }
+                tryToCheckOutIndex = EditorGUILayout.Popup(_selectedIndex, _displayedOptions, width, height);
+                return;
             }
             catch
             {
-                Debug.Log(_selectedIndex);
+                // ignored
+            }
+
+            if (tryToCheckOutIndex == oldIndex || tryToCheckOutIndex == -1) return;
+            //询问是否切换
+            string message =
+                $"是否要从 {_displayedOptions[oldIndex]}\n  切换到    {_displayedOptions[tryToCheckOutIndex]} 分支？\n\n本地未提交的修改会被清空\n本地未提交的修改会被清空\n本地未提交的修改会被清空";
+            if (EditorUtility.DisplayDialog("切分支", message, "确认", "取消"))
+            {
+                // 在编辑器中显示所选值
+                bool commitEmpty = await GitHelper.CheckCommit(_displayedOptions[oldIndex]);
+                if (!commitEmpty)
+                {
+                    EditorUtility.DisplayDialog("检测到未提交的commit", "本地有未提交的commit 无法切分支 请先提交",
+                        "ok");
+                    return;
+                }
+
+                GitBlockWindow.OpenWindow();
+                await GitHelper.CheckOut(_displayedOptions[tryToCheckOutIndex]);
+                _selectedIndex = tryToCheckOutIndex;
+                EditorUtility.RequestScriptReload();
                 GitBlockWindow.CloseWindow();
+            }
+            else
+            {
+                _selectedIndex = oldIndex;
             }
         }
     }
@@ -238,6 +240,8 @@ public class ToolBarEditor
             async UniTask T()
             {
                 GitBlockWindow.OpenWindow();
+                (_displayedOptions, _currentBranchName) = await GitHelper.GetBranchInfo();
+                _selectedIndex = _displayedOptions.ToList().IndexOf(_currentBranchName);
                 await GitHelper.GitPull();
                 EditorUtility.RequestScriptReload();
                 GitBlockWindow.CloseWindow();
@@ -256,7 +260,8 @@ public class ToolBarEditor
     }
 }
 
-#region Git
+
+#region git
 
 public class GitBlockWindow : EditorWindow
 {
@@ -268,8 +273,8 @@ public class GitBlockWindow : EditorWindow
     {
         if (window != null) return;
         window = GetWindow<GitBlockWindow>();
-        window.maximized = true;
-        window.titleContent = new GUIContent("Custom Window");
+        window.minSize = new Vector2(1200, 400);
+        window.titleContent = new GUIContent("git运行中 请勿操作");
     }
 
     public static void CloseWindow()
@@ -282,27 +287,17 @@ public class GitBlockWindow : EditorWindow
     // 在这里绘制窗口内容
     private void OnGUI()
     {
-        var coloredLabelStyle = new GUIStyle(EditorStyles.label);
-        coloredLabelStyle.normal.textColor = Color.red;
-        coloredLabelStyle.fontSize = 30;
-        GUILayout.Label("运行中 请等待", coloredLabelStyle);
-        GUILayout.Label("运行中 请等待", coloredLabelStyle);
-        GUILayout.Label("运行中 请等待", coloredLabelStyle);
-        GUILayout.Label("运行中 请等待", coloredLabelStyle);
-    }
-
-    // 在创建窗口时禁用关闭按钮
-    private void Awake()
-    {
-        EditorApplication.wantsToQuit += () =>
+        GUIStyle coloredLabelStyle = new GUIStyle(EditorStyles.label)
         {
-            if (window != null)
+            normal =
             {
-                window.Close();
-            }
-
-            return true;
+                textColor = Color.red
+            },
+            fontSize = 30
         };
+        GUILayout.Label("git运行中 请勿操作 如果这个界面长时间未关闭 请截图发群里", coloredLabelStyle);
+        GUILayout.Label("git运行中 请勿操作 如果这个界面长时间未关闭 请截图发群里", coloredLabelStyle);
+        GUILayout.Label("git运行中 请勿操作 如果这个界面长时间未关闭 请截图发群里", coloredLabelStyle);
     }
 }
 
@@ -422,12 +417,12 @@ public static class GitHelper
     /// <summary>
     /// 检查是否有未推送的提交
     /// </summary>
-    public static async UniTask<bool> CheckCommit()
+    /// <returns></returns>
+    public static async UniTask<bool> CheckCommit(string currentBranch)
     {
-        var (output, error) = await RunGitCommand("log origin/master..HEAD");
+        var (output, error) = await RunGitCommand($"log origin/{currentBranch[2..]}..HEAD");
         // 如果输出为空，表示没有未推送的提交
-        var empty = string.IsNullOrEmpty(output);
-        return !empty;
+        return string.IsNullOrEmpty(output);
     }
 
     /// <summary>
@@ -449,17 +444,18 @@ public static class GitHelper
                 return (window.selectedFiles, window.CommitMessage);
                 break;
         }
+
         return (null, "");
     }
 
     public static async UniTask<bool> CommitAndPush(List<string> files, string message)
     {
-        if (files== null || files.Count==0)
+        if (files == null || files.Count == 0)
         {
-            EditorUtility.DisplayDialog("未选择文件","未选择文件","ok");
+            EditorUtility.DisplayDialog("未选择文件", "未选择文件", "ok");
             return false;
         }
-        
+
         StringBuilder addCommand = new StringBuilder("add");
         foreach (var file in files)
         {
@@ -468,16 +464,18 @@ public static class GitHelper
 
         await RunGitCommand(addCommand.ToString());
         await RunGitCommand($"commit -m {message}");
-        var (output,error) = await RunGitCommand($"pull");
+        var (output, error) = await RunGitCommand($"pull");
         if (output.Contains("CONFLICT"))
         {
-            EditorUtility.DisplayDialog("提交的文件与远端冲突 摇人","提交的文件与远端冲突 摇人 保留现场","ok");
-            EditorPrefs.SetBool("Git_Conflict",true);
+            EditorUtility.DisplayDialog("提交的文件与远端冲突 请截图发群里", "提交的文件与远端冲突 请截图发群里 保留现场", "ok");
+            EditorPrefs.SetBool("Git_Conflict", true);
             return false;
         }
+
         await RunGitCommand($"push");
         return true;
     }
+
 
     /// <summary>
     /// 切分支
@@ -489,10 +487,10 @@ public static class GitHelper
         await RunGitCommand("clean -df");
         await RunGitCommand("fetch");
         await RunGitCommand($"checkout {targetBranch}");
+
         EditorUtility.RequestScriptReload();
     }
 
-    
     /// <summary>
     /// 获取git变更的文件列表
     /// </summary>
@@ -513,15 +511,18 @@ public static class GitHelper
             switch (status)
             {
                 case 'M' or 'A' or '?' or 'D':
-                    if (filePath.Contains("Assets/ResLocalize"))continue; //不显示本地化的的asset
+                    if (filePath.Contains("Assets/ResLocalize/Scenario")) continue; //禁止客户端提交Secnario
+                    if (filePath.Contains("Assets/ResLocalize/") && filePath.Contains("Message"))
+                        continue; //禁止客户端提交本地化Asset
                     modifiedFiles.Add(filePath);
                     break;
             }
         }
+
         return modifiedFiles.OrderBy(str => str).ToList();
     }
 
-    
+
     /// <summary>
     /// git更新 
     /// </summary>
@@ -530,20 +531,19 @@ public static class GitHelper
         string error;
         await RunGitCommand("reset --hard");
         await RunGitCommand("clean -df");
-        await RunGitCommand("fetch");
         (_, error) = await RunGitCommand("pull");
         if (!string.IsNullOrEmpty(error) && !error.Contains("SECURITY WARNING"))
         {
-            EditorUtility.DisplayDialog("更新", "更新失败 摇人 不要清log", "ok");
+            EditorUtility.DisplayDialog("更新", "更新失败 请截图发群里 不要清log", "ok");
         }
         else
         {
             EditorUtility.DisplayDialog("更新成功1", "更新成功", "ok");
+
             EditorUtility.RequestScriptReload();
         }
     }
 
-   
     /// <summary>
     /// 获取分支信息  分支名，当前分支的index
     /// </summary>
@@ -567,13 +567,13 @@ public static class GitHelper
 
             branches.Add(item.Trim());
         }
+
         Debug.Log(string.Join("\n", branchLines));
         Debug.Log("currentBranch: " + currentBranch);
 
         return (branches.ToArray(), currentBranch);
     }
 
-   
     static async UniTask<(string output, string error)> RunGitCommand(string command)
     {
         Debug.Log("git " + command);
@@ -600,7 +600,10 @@ public static class GitHelper
             // 异步地读取StandardOutput和StandardError
             var readOutputTask = process.StandardOutput.ReadToEndAsync().AsUniTask();
             var readErrorTask = process.StandardError.ReadToEndAsync().AsUniTask();
+
             var (output, error) = await UniTask.WhenAll(readOutputTask, readErrorTask);
+
+
             process.WaitForExit();
 
             if (!string.IsNullOrEmpty(output))
