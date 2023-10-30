@@ -57,7 +57,7 @@ public class ToolBarEditor
     static ToolBarEditor()
     {
         //git工具
-        if (EditorPrefs.GetBool("Git_Conflict", false))
+        if (EditorPrefs.GetBool("Git_Conflict",false))
         {
             ToolbarExtender.LeftToolbarGUI.Add(ClearConflictButton);
         }
@@ -69,11 +69,9 @@ public class ToolBarEditor
             ToolbarExtender.LeftToolbarGUI.Add(DropDown);
             ToolbarExtender.LeftToolbarGUI.Add(RefreshBranchInfo);
         }
-
         //场景切换
         ToolbarExtender.RightToolbarGUI.Add(OnRightToolbarGUI);
 
-        //RefreshBranchInfo();
     }
 
     private static void ClearConflictButton()
@@ -82,7 +80,7 @@ public class ToolBarEditor
         buttonContent.text = "git冲突中 别点我";
         if (GUILayout.Button(buttonContent))
         {
-            EditorPrefs.SetBool("Git_Conflict", false);
+            EditorPrefs.SetBool("Git_Conflict",false);
             EditorUtility.RequestScriptReload();
         }
     }
@@ -94,6 +92,12 @@ public class ToolBarEditor
         buttonContent.text = "git上传";
         if (GUILayout.Button(buttonContent))
         {
+            if (EditorApplication.isPlaying)
+            {
+                //防呆 运行中不能更新git
+                EditorUtility.DisplayDialog("游戏运行中！！" ,"游戏运行中！！禁止操作","ok");
+                return;
+            }
             T().Forget();
         }
 
@@ -102,18 +106,16 @@ public class ToolBarEditor
         {
             (_displayedOptions, _currentBranchName) = await GitHelper.GetBranchInfo();
             _selectedIndex = _displayedOptions.ToList().IndexOf(_currentBranchName);
-            var (files, message) = await GitHelper.OpenCommitWindow(); //玩家选择的文件 和提交log
+            var (files, message) = await GitHelper.OpenCommitWindow();//玩家选择的文件 和提交log
             if (files == null || files.Count == 0 || message == "")
             {
                 EditorUtility.DisplayDialog("未选择文件", "未选择文件", "ok");
                 return;
             }
-
-            if (EditorUtility.DisplayDialog($"推送确认", $"是否要提交到{_displayedOptions[_selectedIndex]}分支？\n log信息：{message}",
-                    "确认", "取消"))
+            if (EditorUtility.DisplayDialog($"推送确认", $"是否要提交到{_displayedOptions[_selectedIndex]}分支？\n log信息：{message}","确认","取消"))
             {
                 GitBlockWindow.OpenWindow();
-                var success = await GitHelper.CommitAndPush(files, message);
+                var success= await GitHelper.CommitAndPush(files, message);
                 if (success)
                 {
                     EditorUtility.DisplayDialog("推送成功", "推送成功", "ok");
@@ -122,7 +124,6 @@ public class ToolBarEditor
                 {
                     Debug.LogError("更新失败");
                 }
-
                 GitBlockWindow.CloseWindow();
             }
         }
@@ -145,6 +146,12 @@ public class ToolBarEditor
         if (!EditorPrefs.GetBool("GitTool")) return;
         if (GUILayout.Button("获取分支列表", ToolbarStyles.CommandButtonStyle2))
         {
+            if (EditorApplication.isPlaying)
+            {
+                //防呆 运行中不能更新git
+                EditorUtility.DisplayDialog("游戏运行中！！" ,"游戏运行中！！禁止操作","ok");
+                return;
+            }
             Func().Forget();
         }
 
@@ -160,7 +167,7 @@ public class ToolBarEditor
 
 
     private static int _selectedIndex = 0;
-    private static string[] _displayedOptions = new[] {"请先获取分支列表"};
+    private static string[] _displayedOptions=new []{"请先获取分支列表"};
     private static string _currentBranchName;
 
     private static void DropDown()
@@ -193,13 +200,18 @@ public class ToolBarEditor
             {
                 // ignored
             }
-
             if (tryToCheckOutIndex == oldIndex || tryToCheckOutIndex == -1) return;
             //询问是否切换
             string message =
                 $"是否要从 {_displayedOptions[oldIndex]}\n  切换到    {_displayedOptions[tryToCheckOutIndex]} 分支？\n\n本地未提交的修改会被清空\n本地未提交的修改会被清空\n本地未提交的修改会被清空";
             if (EditorUtility.DisplayDialog("切分支", message, "确认", "取消"))
             {
+                if (EditorApplication.isPlaying)
+                {
+                    //防呆 运行中不能更新git
+                    EditorUtility.DisplayDialog("游戏运行中！！" ,"游戏运行中！！禁止操作","ok");
+                    return;
+                }
                 // 在编辑器中显示所选值
                 bool commitEmpty = await GitHelper.CheckCommit(_displayedOptions[oldIndex]);
                 if (!commitEmpty)
@@ -212,6 +224,7 @@ public class ToolBarEditor
                 GitBlockWindow.OpenWindow();
                 await GitHelper.CheckOut(_displayedOptions[tryToCheckOutIndex]);
                 _selectedIndex = tryToCheckOutIndex;
+
                 EditorUtility.RequestScriptReload();
                 GitBlockWindow.CloseWindow();
             }
@@ -219,6 +232,7 @@ public class ToolBarEditor
             {
                 _selectedIndex = oldIndex;
             }
+            
         }
     }
 
@@ -230,6 +244,12 @@ public class ToolBarEditor
         buttonContent.text = "git更新";
         if (GUILayout.Button(buttonContent))
         {
+            if (EditorApplication.isPlaying)
+            {
+                //防呆 运行中不能更新git
+                EditorUtility.DisplayDialog("游戏运行中！！" ,"游戏运行中！！禁止操作","ok");
+                return;
+            }
             string message =
                 $"是否要更新{_displayedOptions[_selectedIndex]} 分支？\n\n      本地的修改会被清空";
             if (EditorUtility.DisplayDialog("更新工程", message, "确认", "取消"))
@@ -257,6 +277,65 @@ public class ToolBarEditor
         {
             SceneHelper.StartScene("Title");
         }
+
+        if (GUILayout.Button(new GUIContent("Battle", "Start Battle  Test Scene "),
+                ToolbarStyles.CommandButtonStyle))
+        {
+            SceneHelper.StartScene("BattleBootScene");
+        }
+
+        if (GUILayout.Button(new GUIContent("DB", "Start Debug Scene "), ToolbarStyles.CommandButtonStyle))
+        {
+            // SceneHelper.StartScene("BattlePreview");
+            string[] guids = AssetDatabase.FindAssets("t:scene " + "BattlePreview", null);
+            string scenePath = AssetDatabase.GUIDToAssetPath(guids[0]);
+            EditorSceneManager.OpenScene(scenePath);
+        }
+
+        if (GUILayout.Button(new GUIContent("Dungeon", "Start Debug Scene "), ToolbarStyles.CommandButtonStyle))
+        {
+            // SceneHelper.StartScene("BattlePreview");
+            string[] guids = AssetDatabase.FindAssets("t:scene " + "BattleZoneBootScene", null);
+            string scenePath = AssetDatabase.GUIDToAssetPath(guids[0]);
+            EditorSceneManager.OpenScene(scenePath);
+        }
+
+        if (GUILayout.Button(new GUIContent("Story", "剧情启动器"), ToolbarStyles.CommandButtonStyle))
+        {
+            SceneHelper.StartScene("StoryBoot");
+        }
+
+        if (GUILayout.Button(new GUIContent("MCity", "主城启动器"), ToolbarStyles.CommandButtonStyle))
+        {
+            SceneHelper.ChangeScene("CityBoot");
+        }
+
+        if (GUILayout.Button(new GUIContent("Cri", "声音测试"), ToolbarStyles.CommandButtonStyle))
+        {
+            string[] guids = AssetDatabase.FindAssets("t:scene " + "SoundTestScene", null);
+            string scenePath = AssetDatabase.GUIDToAssetPath(guids[0]);
+            EditorSceneManager.OpenScene(scenePath);
+        }
+
+        if (GUILayout.Button(new GUIContent("Kranj", "Start Kranj Scene "), ToolbarStyles.CommandButtonStyle))
+        {
+            SceneHelper.StartScene("Kranj");
+        }
+
+        if (GUILayout.Button(new GUIContent("Movie", "播放CG视频"), ToolbarStyles.CommandButtonStyle))
+        {
+            SceneHelper.StartScene("MoviePlayScene");
+        }
+
+        if (GUILayout.Button(new GUIContent("Tea", "茶歇启动器"), ToolbarStyles.CommandButtonStyle))
+        {
+            SceneHelper.StartScene("TeaBreakEditor");
+        }
+
+        if (GUILayout.Button(new GUIContent("Effect", "特效性能优化"), ToolbarStyles.CommandButtonStyle))
+        {
+            SceneHelper.ChangeScene("EffectEvaluate");
+        }
     }
 }
 
@@ -273,7 +352,7 @@ public class GitBlockWindow : EditorWindow
     {
         if (window != null) return;
         window = GetWindow<GitBlockWindow>();
-        window.minSize = new Vector2(1200, 400);
+        window.minSize = new Vector2(1200,400);
         window.titleContent = new GUIContent("git运行中 请勿操作");
     }
 
@@ -300,6 +379,7 @@ public class GitBlockWindow : EditorWindow
         GUILayout.Label("git运行中 请勿操作 如果这个界面长时间未关闭 请截图发群里", coloredLabelStyle);
     }
 }
+
 
 
 public class GitCommitWindow : EditorWindow
@@ -444,18 +524,17 @@ public static class GitHelper
                 return (window.selectedFiles, window.CommitMessage);
                 break;
         }
-
         return (null, "");
     }
 
     public static async UniTask<bool> CommitAndPush(List<string> files, string message)
     {
-        if (files == null || files.Count == 0)
+        if (files== null || files.Count==0)
         {
-            EditorUtility.DisplayDialog("未选择文件", "未选择文件", "ok");
+            EditorUtility.DisplayDialog("未选择文件","未选择文件","ok");
             return false;
         }
-
+        
         StringBuilder addCommand = new StringBuilder("add");
         foreach (var file in files)
         {
@@ -464,18 +543,17 @@ public static class GitHelper
 
         await RunGitCommand(addCommand.ToString());
         await RunGitCommand($"commit -m {message}");
-        var (output, error) = await RunGitCommand($"pull");
+        var (output,error) = await RunGitCommand($"pull");
         if (output.Contains("CONFLICT"))
         {
-            EditorUtility.DisplayDialog("提交的文件与远端冲突 请截图发群里", "提交的文件与远端冲突 请截图发群里 保留现场", "ok");
-            EditorPrefs.SetBool("Git_Conflict", true);
+            EditorUtility.DisplayDialog("提交的文件与远端冲突 请截图发群里","提交的文件与远端冲突 请截图发群里 保留现场","ok");
+            EditorPrefs.SetBool("Git_Conflict",true);
             return false;
         }
-
         await RunGitCommand($"push");
         return true;
     }
-
+    
 
     /// <summary>
     /// 切分支
@@ -487,14 +565,13 @@ public static class GitHelper
         await RunGitCommand("clean -df");
         await RunGitCommand("fetch");
         await RunGitCommand($"checkout {targetBranch}");
-
+        
         EditorUtility.RequestScriptReload();
     }
 
     /// <summary>
     /// 获取git变更的文件列表
     /// </summary>
-    /// <param name="gitRepoPath"></param>
     /// <returns></returns>
     public static async UniTask<List<string>> GetModifiedFiles()
     {
@@ -511,17 +588,14 @@ public static class GitHelper
             switch (status)
             {
                 case 'M' or 'A' or '?' or 'D':
-                    if (filePath.Contains("Assets/ResLocalize/Scenario")) continue; //禁止客户端提交Secnario
-                    if (filePath.Contains("Assets/ResLocalize/") && filePath.Contains("Message"))
-                        continue; //禁止客户端提交本地化Asset
+                    if (filePath.Contains("Assets/ResLocalize/Scenario"))continue; //禁止客户端提交Secnario
+                    if (filePath.Contains("Assets/ResLocalize/") && filePath.Contains("Message"))continue; //禁止客户端提交本地化Asset
                     modifiedFiles.Add(filePath);
                     break;
             }
         }
-
         return modifiedFiles.OrderBy(str => str).ToList();
     }
-
 
     /// <summary>
     /// git更新 
@@ -539,7 +613,7 @@ public static class GitHelper
         else
         {
             EditorUtility.DisplayDialog("更新成功1", "更新成功", "ok");
-
+            
             EditorUtility.RequestScriptReload();
         }
     }
@@ -567,7 +641,6 @@ public static class GitHelper
 
             branches.Add(item.Trim());
         }
-
         Debug.Log(string.Join("\n", branchLines));
         Debug.Log("currentBranch: " + currentBranch);
 
@@ -715,7 +788,7 @@ public static class ToolbarExtender
     {
         var center = EditorGUIUtility.currentViewWidth / 2;
         GUILayout.BeginHorizontal();
-        GUILayout.Space(center - 130 * LeftToolbarGUI.Count - playPauseStopWidth);
+        GUILayout.Space(center - 100 * LeftToolbarGUI.Count - playPauseStopWidth);
         for (int i = 0; i < LeftToolbarGUI.Count; i++)
         {
             LeftToolbarGUI[i].Invoke();
@@ -763,6 +836,7 @@ public static class ToolbarCallback
     /// Callback for toolbar OnGUI method.
     /// </summary>
     public static Action OnToolbarGUI;
+
 
     public static Action OnToolbarGUILeft;
     public static Action OnToolbarGUIRight;
@@ -842,3 +916,4 @@ public static class ToolbarCallback
 }
 
 #endregion
+
